@@ -1,3 +1,20 @@
+from aiogram.filters import Command
+
+@dp.message(Command("stats"))
+async def stats(message: types.Message):
+    if message.from_user.id != OWNER_ID:
+        await message.answer("You do not have access to this command.")
+        return
+    await message.answer("Stats command coming soon.")
+
+@dp.message(Command("help"))
+async def help_handler(message: types.Message):
+    await message.answer(
+        "Commands:\n"
+        "/start – open the menu\n"
+        "/help – show this message\n"
+        "/stats – owner-only stats"
+    )
 import asyncio
 import logging
 import os
