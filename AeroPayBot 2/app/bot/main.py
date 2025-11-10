@@ -1,5 +1,7 @@
 from aiogram.filters import Command
-
+bot = Bot(token=BOT_TOKEN)
+storage = MemoryStorage()
+dp = Dispatcher(storage=storage)
 @dp.message(Command("stats"))
 async def stats(message: types.Message):
     if message.from_user.id != OWNER_ID:
