@@ -11,20 +11,20 @@ from aiogram import F
 
 # === CONFIG ===
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-STRIPE_TOKEN = os.getenv("STRIPE_TOKEN")
+PROVIDER_TOKEN = os.getenv("PROVIDER_TOKEN")  # ← THIS IS THE CORRECT NAME
 OWNER_ID = int(os.getenv("OWNER_ID", "0"))
 
 if not BOT_TOKEN:
-    raise ValueError("BOT_TOKEN missing in Railway Variables!")
-if not STRIPE_TOKEN:
-    raise ValueError("STRIPE_TOKEN missing! Must be pk_test_...")
+    raise ValueError("BOT_TOKEN missing!")
+if not PROVIDER_TOKEN:
+    raise ValueError("PROVIDER_TOKEN missing! Must be pk_test_...")
 
 bot = Bot(token=BOT_TOKEN)
 storage = MemoryStorage()
 dp = Dispatcher(storage=storage)
 logging.basicConfig(level=logging.INFO)
 
-# === DATABASE (in memory) ===
+# === DATABASE ===
 users = set()
 keys = ["AERO2025VIP: permanent"]
 
@@ -73,7 +73,7 @@ async def send_fixed_plan(message: types.Message):
         title=f"{duration} VIP Access",
         description=f"Get {duration.lower()} VIP key",
         payload=f"vip_{amount}_{message.from_user.id}",
-        provider_token=STRIPE_TOKEN,
+        provider_token=PROVIDER_TOKEN,
         currency="USD",
         prices=prices,
         start_parameter="vip"
@@ -97,7 +97,7 @@ async def process_custom(message: types.Message, state: FSMContext):
             title="Custom VIP Access",
             description=f"Permanent VIP key for ${amount}",
             payload=f"custom_{amount}_{message.from_user.id}",
-            provider_token=STRIPE_TOKEN,
+            provider_token=PROVIDER_TOKEN,
             currency="USD",
             prices=prices,
             start_parameter="custom"
