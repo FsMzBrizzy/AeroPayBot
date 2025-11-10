@@ -3,10 +3,11 @@ import logging
 import asyncio
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
-from aiogram.types import LabeledPrice, PreCheckoutQuery, ReplyKeyboardMarkup, KeyboardButton, ContentType
+from aiogram.types import LabeledPrice, PreCheckoutQuery, ReplyKeyboardMarkup, KeyboardButton
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram import F
 
 # === CONFIG ===
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -14,7 +15,7 @@ STRIPE_TOKEN = os.getenv("STRIPE_TOKEN")
 OWNER_ID = int(os.getenv("OWNER_ID", "0"))
 
 if not BOT_TOKEN:
-    raise ValueError("BOT_TOKEN missing in Railway Variables!")
+    raise ValueError("BOT_TOKEN missing!")
 if not STRIPE_TOKEN:
     raise ValueError("STRIPE_TOKEN missing!")
 
@@ -44,7 +45,7 @@ admin_kb = ReplyKeyboardMarkup(
     resize_keyboard=True
 )
 
-# === START COMMAND ===
+# === START ===
 @dp.message(Command("start"))
 async def start(message: types.Message):
     if message.from_user.id == OWNER_ID:
@@ -53,7 +54,7 @@ async def start(message: types.Message):
         await message.answer("Welcome to GiftBot V1!\nChoose a plan:", reply_markup=kb_amount)
 
 # === FIXED PLANS ===
-@dp.message(lambda m: m.text and m.text in ["$25", "$50", "$100", "$200"])
+@dp.message(F.text.in_(["$25", "$50", "$100", "$200"]))
 async def send_fixed_plan(message: types.Message):
     amount = int(message.text.replace("$", ""))
     months = {25: 1, 50: 3, 100: 6, 200: 999}[amount]
@@ -70,8 +71,8 @@ async def send_fixed_plan(message: types.Message):
         start_parameter="vip-plan"
     )
 
-# === CUSTOM AMOUNT ($1–$2000) ===
-@dp.message(lambda m: m.text == "Custom")
+# === CUSTOM AMOUNT ===
+@dp.message(F.text == "Custom")
 async def custom_start(message: types.Message, state: FSMContext):
     await message.answer("Enter amount in USD (1–2000):\nExample: 1337", reply_markup=types.ReplyKeyboardRemove())
     await state.set_state(CustomAmount.waiting_for_amount)
@@ -97,17 +98,18 @@ async def process_custom(message: types.Message, state: FSMContext):
     except ValueError:
         await message.answer("Send a valid number (e.g. 999)")
 
-# === BACK BUTTON ===
-@dp.message(lambda m: m.text == "Back")
+# === BACK ===
+@dp.message(F.text == "Back")
 async def back_to_menu(message: types.Message):
     await message.answer("Choose a plan:", reply_markup=kb_amount)
 
-# === PAYMENT HANDLERS ===
+# === PAYMENT HANDLERS (FIXED FOR AIOGRAM 3) ===
 @dp.pre_checkout_query()
 async def pre_checkout(query: PreCheckoutQuery):
     await bot.answer_pre_checkout_query(query.id, ok=True)
 
-@dp.message(content_type=ContentType.SUCCESSFUL_PAYMENT)
+# SUCCESSFUL PAYMENT HANDLER — FIXED
+@dp.message(F.successful_payment)
 async def payment_success(message: types.Message):
     amount = message.successful_payment.total_amount // 100
     key = f"AERO{amount}VIP"
@@ -130,7 +132,7 @@ async def listkeys(message: types.Message):
         return
     await message.answer("Active keys:\nAERO2025VIP: permanent")
 
-# === RUN BOT ===
+# === RUN ===
 async def main():
     await dp.start_polling(bot)
 
