@@ -1,0 +1,4 @@
+Traceback (most recent call last):
+  File "/Users/bryce/Downloads/AeroPayBot/bot.py", line 1, in <module>
+    from aiogram import Bot, Dispatcher, types, F
+ModuleNotFoundError: No module named 'aiogram'

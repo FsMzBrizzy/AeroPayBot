@@ -1,0 +1,60 @@
+# server.py – WIX PAYMENTS VERSION (NO STRIPE NEEDED)
+from flask import Flask, request, jsonify
+import requests
+import os
+import secrets
+
+app = Flask(__name__)
+
+# GET THESE 2 THINGS FROM WIX (30 seconds – instructions below)
+WIX_API_KEY = os.getenv("WIX_API_KEY")      # Your Wix secret key
+WIX_SITE_ID = os.getenv("WIX_SITE_ID")      # Your site ID (looks like 12345678-1234-1234-1234-1234567890ab)
+
+def gen_codes(amount):
+    cnt = int(amount.replace("$","")) // 25
+    return [f"AE-{secrets.token_hex(4).upper()}-{secrets.token_hex(4).upper()}" for _ in range(cnt)]
+
+@app.route("/pay", methods=["POST"])
+def pay():
+    data = request.json
+    amount = int(data["amount"].replace("$","")) * 100  # cents
+
+    payload = {
+        "paymentMethod": {
+            "type": "creditCard",
+            "creditCard": {
+                "number": data["card_number"],
+                "expiration": {
+                    "month": int(data["exp_month"]),
+                    "year": int(data["exp_year"])
+                },
+                "cvv": data["cvv"],
+                "holderName": data["name"]
+            }
+        },
+        "amount": amount,
+        "currency": "USD",
+        "items": [{"name": f"AeroElite Gift Card {data['amount']}", "price": amount}]
+    }
+
+    headers = {
+        "Authorization": WIX_API_KEY,
+        "Content-Type": "application/json"
+    }
+
+    try:
+        r = requests.post(
+            f"https://www.wixapis.com/payments/v1/charges",
+            json=payload,
+            headers=headers
+        )
+        r.raise_for_status()
+        return jsonify({"success": True, "codes": gen_codes(data["amount"])})
+    except requests.exceptions.HTTPError as e:
+        error = r.json().get("details", {}).get("applicationError", {}).get("description", "Payment failed")
+        return jsonify({"success": False, "error": error})
+    except:
+        return jsonify({"success": False, "error": "Payment failed"})
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
