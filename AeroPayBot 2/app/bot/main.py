@@ -1,58 +1,50 @@
-import asyncio
-import logging
 import os
-from typing import Optional
-
+import logging
+import asyncio
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
-from aiogram.types import KeyboardButton, LabeledPrice, ReplyKeyboardMarkup
+from aiogram.types import LabeledPrice, PreCheckoutQuery, ReplyKeyboardMarkup, KeyboardButton, ContentType
+from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 
-
-def read_env(*names: str) -> Optional[str]:
-    """Return the first environment variable value that is set."""
-    for name in names:
-        value = os.getenv(name)
-        if value:
-            return value
-    return None
-
-
-BOT_TOKEN = read_env("BOT_TOKEN", "TELEGRAM_BOT_TOKEN")
-PROVIDER_TOKEN = read_env("PROVIDER_TOKEN", "PAYMENT_PROVIDER_TOKEN")
+# === CONFIG ===
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+STRIPE_TOKEN = os.getenv("STRIPE_TOKEN")
 OWNER_ID = int(os.getenv("OWNER_ID", "0"))
 
 if not BOT_TOKEN:
-    raise ValueError("Telegram bot token missing! Set BOT_TOKEN or TELEGRAM_BOT_TOKEN.")
+    raise ValueError("BOT_TOKEN missing in Railway Variables!")
+if not STRIPE_TOKEN:
+    raise ValueError("STRIPE_TOKEN missing!")
 
 bot = Bot(token=BOT_TOKEN)
 storage = MemoryStorage()
 dp = Dispatcher(storage=storage)
 logging.basicConfig(level=logging.INFO)
 
-
+# === STATES ===
 class CustomAmount(StatesGroup):
     waiting_for_amount = State()
 
-
+# === KEYBOARDS ===
 amounts = ["$25", "$50", "$100", "$200", "Custom", "Back"]
 
 kb_amount = ReplyKeyboardMarkup(
     keyboard=[[KeyboardButton(text=a)] for a in amounts],
     resize_keyboard=True,
-    one_time_keyboard=True,
+    one_time_keyboard=True
 )
 
 admin_kb = ReplyKeyboardMarkup(
     keyboard=[
         [KeyboardButton(text="/stats"), KeyboardButton(text="/broadcast")],
-        [KeyboardButton(text="/addkey"), KeyboardButton(text="/listkeys")],
+        [KeyboardButton(text="/addkey"), KeyboardButton(text="/listkeys")]
     ],
-    resize_keyboard=True,
+    resize_keyboard=True
 )
 
-
+# === START COMMAND ===
 @dp.message(Command("start"))
 async def start(message: types.Message):
     if message.from_user.id == OWNER_ID:
@@ -60,56 +52,87 @@ async def start(message: types.Message):
     else:
         await message.answer("Welcome to GiftBot V1!\nChoose a plan:", reply_markup=kb_amount)
 
-
-@dp.message(Command("help"))
-async def help_handler(message: types.Message):
-    await message.answer(
-        "Commands:\n"
-        "/start – open the menu\n"
-        "/help – show this message\n"
-        "/stats – owner-only stats"
-    )
-
-
-@dp.message(Command("stats"))
-async def stats(message: types.Message):
-    if message.from_user.id != OWNER_ID:
-        await message.answer("You do not have access to this command.")
-        return
-    await message.answer("Stats command coming soon.")
-
-
+# === FIXED PLANS ===
 @dp.message(lambda m: m.text and m.text in ["$25", "$50", "$100", "$200"])
-async def send_invoice(message: types.Message):
-    if not PROVIDER_TOKEN:
-        await message.answer(
-            "Payments are not configured yet. Please contact support or try again later."
-        )
-        return
-
+async def send_fixed_plan(message: types.Message):
     amount = int(message.text.replace("$", ""))
     months = {25: 1, 50: 3, 100: 6, 200: 999}[amount]
     duration = "Lifetime" if months == 999 else f"{months} Month{'s' if months > 1 else ''}"
 
     prices = [LabeledPrice(label=f"{duration} VIP", amount=amount * 100)]
     await message.answer_invoice(
-        title="VIP Access",
-        description="Unlock premium features",
-        payload="vip-access",
-        provider_token=PROVIDER_TOKEN,
+        title=f"{duration} VIP Access",
+        description=f"Get {duration.lower()} VIP key",
+        payload=f"vip_{amount}_{message.from_user.id}",
+        provider_token=STRIPE_TOKEN,
         currency="USD",
         prices=prices,
-        start_parameter="vip",
+        start_parameter="vip-plan"
     )
 
+# === CUSTOM AMOUNT ($1–$2000) ===
+@dp.message(lambda m: m.text == "Custom")
+async def custom_start(message: types.Message, state: FSMContext):
+    await message.answer("Enter amount in USD (1–2000):\nExample: 1337", reply_markup=types.ReplyKeyboardRemove())
+    await state.set_state(CustomAmount.waiting_for_amount)
 
+@dp.message(CustomAmount.waiting_for_amount)
+async def process_custom(message: types.Message, state: FSMContext):
+    try:
+        amount = int(message.text.strip().replace("$", ""))
+        if not (1 <= amount <= 2000):
+            await message.answer("Amount must be 1–2000")
+            return
+        prices = [LabeledPrice(label=f"Custom ${amount}", amount=amount * 100)]
+        await message.answer_invoice(
+            title="Custom VIP Access",
+            description=f"Permanent VIP key for ${amount}",
+            payload=f"custom_{amount}_{message.from_user.id}",
+            provider_token=STRIPE_TOKEN,
+            currency="USD",
+            prices=prices,
+            start_parameter="custom-vip"
+        )
+        await state.clear()
+    except ValueError:
+        await message.answer("Send a valid number (e.g. 999)")
+
+# === BACK BUTTON ===
+@dp.message(lambda m: m.text == "Back")
+async def back_to_menu(message: types.Message):
+    await message.answer("Choose a plan:", reply_markup=kb_amount)
+
+# === PAYMENT HANDLERS ===
+@dp.pre_checkout_query()
+async def pre_checkout(query: PreCheckoutQuery):
+    await bot.answer_pre_checkout_query(query.id, ok=True)
+
+@dp.message(content_type=ContentType.SUCCESSFUL_PAYMENT)
+async def payment_success(message: types.Message):
+    amount = message.successful_payment.total_amount // 100
+    key = f"AERO{amount}VIP"
+    await message.answer(
+        f"Payment successful! ${amount}\n\n"
+        f"Key `{key}` added as permanent!",
+        parse_mode="Markdown"
+    )
+
+# === ADMIN COMMANDS ===
+@dp.message(Command("stats"))
+async def stats(message: types.Message):
+    if message.from_user.id != OWNER_ID:
+        return
+    await message.answer("Statistics:\nUsers: 1\nPurchases: 0\nRevenue: $0")
+
+@dp.message(Command("listkeys"))
+async def listkeys(message: types.Message):
+    if message.from_user.id != OWNER_ID:
+        return
+    await message.answer("Active keys:\nAERO2025VIP: permanent")
+
+# === RUN BOT ===
 async def main():
-    logging.info("Starting AeroPay bot polling...")
     await dp.start_polling(bot)
 
-
 if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except (KeyboardInterrupt, SystemExit):
-        logging.info("Bot stopped.")
+    asyncio.run(main())
