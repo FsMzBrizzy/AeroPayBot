@@ -24,7 +24,15 @@ storage = MemoryStorage()
 dp = Dispatcher(storage=storage)
 logging.basicConfig(level=logging.INFO)
 
+# === SIMPLE DATABASE (in memory) ===
+users = set()  # all user IDs
+keys = ["AERO2025VIP: permanent"]  # stored keys
+
 # === STATES ===
+class AdminStates(StatesGroup):
+    waiting_broadcast = State()
+    waiting_addkey = State()
+
 class CustomAmount(StatesGroup):
     waiting_for_amount = State()
 
@@ -48,6 +56,7 @@ admin_kb = ReplyKeyboardMarkup(
 # === START ===
 @dp.message(Command("start"))
 async def start(message: types.Message):
+    users.add(message.from_user.id)
     if message.from_user.id == OWNER_ID:
         await message.answer("Owner panel active!", reply_markup=admin_kb)
     else:
@@ -96,26 +105,27 @@ async def process_custom(message: types.Message, state: FSMContext):
         )
         await state.clear()
     except ValueError:
-        await message.answer("Send a valid number (e.g. 999)")
+        await message.answer("Send a valid number")
 
 # === BACK ===
 @dp.message(F.text == "Back")
 async def back_to_menu(message: types.Message):
     await message.answer("Choose a plan:", reply_markup=kb_amount)
 
-# === PAYMENT HANDLERS (FIXED FOR AIOGRAM 3) ===
+# === PAYMENT HANDLERS ===
 @dp.pre_checkout_query()
 async def pre_checkout(query: PreCheckoutQuery):
     await bot.answer_pre_checkout_query(query.id, ok=True)
 
-# SUCCESSFUL PAYMENT HANDLER — FIXED
 @dp.message(F.successful_payment)
 async def payment_success(message: types.Message):
     amount = message.successful_payment.total_amount // 100
     key = f"AERO{amount}VIP"
+    keys.append(f"{key}: permanent")
     await message.answer(
         f"Payment successful! ${amount}\n\n"
-        f"Key `{key}` added as permanent!",
+        f"Key `{key}` added as permanent!\n\n"
+        f"Use it at https://www.aeroelite.shop/gift-card",
         parse_mode="Markdown"
     )
 
@@ -124,13 +134,45 @@ async def payment_success(message: types.Message):
 async def stats(message: types.Message):
     if message.from_user.id != OWNER_ID:
         return
-    await message.answer("Statistics:\nUsers: 1\nPurchases: 0\nRevenue: $0")
+    await message.answer(f"Statistics:\nUsers: {len(users)}\nPurchases: {len(keys)-1}\nRevenue: ${sum(int(k.split('AERO')[1].split('VIP')[0]) for k in keys if 'AERO' in k)}")
 
 @dp.message(Command("listkeys"))
 async def listkeys(message: types.Message):
     if message.from_user.id != OWNER_ID:
         return
-    await message.answer("Active keys:\nAERO2025VIP: permanent")
+    await message.answer("Active keys:\n" + "\n".join(keys))
+
+@dp.message(Command("broadcast"))
+async def broadcast_start(message: types.Message, state: FSMContext):
+    if message.from_user.id != OWNER_ID:
+        return
+    await message.answer("Send the message to broadcast:")
+    await state.set_state(AdminStates.waiting_broadcast)
+
+@dp.message(AdminStates.waiting_broadcast)
+async def broadcast_send(message: types.Message, state: FSMContext):
+    sent = 0
+    for user_id in users:
+        try:
+            await bot.send_message(user_id, message.text)
+            sent += 1
+        except:
+            pass
+    await message.answer(f"Broadcast sent to {sent} users")
+    await state.clear()
+
+@dp.message(Command("addkey"))
+async def addkey_start(message: types.Message, state: FSMContext):
+    if message.from_user.id != OWNER_ID:
+        return
+    await message.answer("Send the key (format: KEYNAME: duration)")
+    await state.set_state(AdminStates.waiting_addkey)
+
+@dp.message(AdminStates.waiting_addkey)
+async def addkey_save(message: types.Message, state: FSMContext):
+    keys.append(message.text)
+    await message.answer(f"Key added:\n{message.text}")
+    await state.clear()
 
 # === RUN ===
 async def main():
