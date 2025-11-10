@@ -1,22 +1,3 @@
-from aiogram.filters import Command
-bot = Bot(token=BOT_TOKEN)
-storage = MemoryStorage()
-dp = Dispatcher(storage=storage)
-@dp.message(Command("stats"))
-async def stats(message: types.Message):
-    if message.from_user.id != OWNER_ID:
-        await message.answer("You do not have access to this command.")
-        return
-    await message.answer("Stats command coming soon.")
-
-@dp.message(Command("help"))
-async def help_handler(message: types.Message):
-    await message.answer(
-        "Commands:\n"
-        "/start – open the menu\n"
-        "/help – show this message\n"
-        "/stats – owner-only stats"
-    )
 import asyncio
 import logging
 import os
@@ -78,6 +59,24 @@ async def start(message: types.Message):
         await message.answer("Owner panel active!", reply_markup=admin_kb)
     else:
         await message.answer("Welcome to GiftBot V1!\nChoose a plan:", reply_markup=kb_amount)
+
+
+@dp.message(Command("help"))
+async def help_handler(message: types.Message):
+    await message.answer(
+        "Commands:\n"
+        "/start – open the menu\n"
+        "/help – show this message\n"
+        "/stats – owner-only stats"
+    )
+
+
+@dp.message(Command("stats"))
+async def stats(message: types.Message):
+    if message.from_user.id != OWNER_ID:
+        await message.answer("You do not have access to this command.")
+        return
+    await message.answer("Stats command coming soon.")
 
 
 @dp.message(lambda m: m.text and m.text in ["$25", "$50", "$100", "$200"])
